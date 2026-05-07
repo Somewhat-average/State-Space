@@ -273,8 +273,7 @@ void calculateRungeKutta(stateSpace * ss) {
             ELEM(ss->RK4_B, row, col) = ELEM(ss->I, row, col)
                                       + ELEM(ss->A1, row, col)
                                       + ELEM(ss->A2, row, col)
-                                      + ELEM(ss->A3, row, col)
-                                      + ELEM(ss->A4, row, col);
+                                      + ELEM(ss->A3, row, col); 
 
     return;
 }
