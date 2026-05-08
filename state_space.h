@@ -23,17 +23,8 @@ typedef struct {
     matrix *vec_x3;
     matrix *vec_y1;
     matrix *vec_y2;
-    matrix *k1;
-    matrix *k2;
-    matrix *k3;
-    matrix *k4;
-    matrix *A1;
-    matrix *A2;
-    matrix *A3;
-    matrix *A4;
-    matrix *RK4_A;
-    matrix *RK4_B;
-    matrix *I;
+    matrix *Ad;
+    matrix *Bd;
 
     /* time step */
     double h;
@@ -42,7 +33,7 @@ typedef struct {
 stateSpace * stateSpaceCreate(const int size_x, const int size_u, const int size_y);
 int stateSpaceDestroy(stateSpace * ss);
 void stateSpaceUpdate(stateSpace * ss);
-void calculateRungeKutta(stateSpace * ss);
+int calculateRungeKutta(stateSpace * ss);
 
 
 stateSpace * stateSpaceCreate(const int size_x, const int size_u, const int size_y) {
@@ -73,17 +64,8 @@ stateSpace * stateSpaceCreate(const int size_x, const int size_u, const int size
     ss->vec_x3 = NULL;
     ss->vec_y1 = NULL;
     ss->vec_y2 = NULL;
-    ss->k1 = NULL;
-    ss->k2 = NULL;
-    ss->k3 = NULL;
-    ss->k4 = NULL;
-    ss->A1 = NULL;
-    ss->A2 = NULL;
-    ss->A3 = NULL;
-    ss->A4 = NULL;
-    ss->RK4_A = NULL;
-    ss->RK4_B = NULL;
-    ss->I = NULL;
+    ss->Ad = NULL;
+    ss->Bd = NULL;
 
     /* rows = output len; cols = vector len */
     ss->A = matrixCreate(size_x, size_x);
@@ -103,19 +85,8 @@ stateSpace * stateSpaceCreate(const int size_x, const int size_u, const int size
     ss->vec_x3 = matrixCreate(size_x, 1);
     ss->vec_y1 = matrixCreate(size_y, 1);
     ss->vec_y2 = matrixCreate(size_y, 1);
-    ss->k1 = matrixCreate(size_x, 1);
-    ss->k2 = matrixCreate(size_x, 1);
-    ss->k3 = matrixCreate(size_x, 1);
-    ss->k4 = matrixCreate(size_x, 1);
-    ss->A1 = matrixCreate(size_x, size_x);
-    ss->A2 = matrixCreate(size_x, size_x);
-    ss->A3 = matrixCreate(size_x, size_x);
-    ss->A4 = matrixCreate(size_x, size_x);
-    ss->RK4_A = matrixCreate(size_x, size_x);
-    ss->RK4_B = matrixCreate(size_x, size_x);
-
-    ss->I = matrixCreate(size_x, size_x);
-    identity(ss->I);
+    ss->Ad = matrixCreate(size_x, size_x);
+    ss->Bd = matrixCreate(size_x, size_x);
 
     if (!ss->A ||
         !ss->B ||
@@ -130,23 +101,14 @@ stateSpace * stateSpaceCreate(const int size_x, const int size_u, const int size
         !ss->vec_x3 ||
         !ss->vec_y1 ||
         !ss->vec_y2 ||
-        !ss->k1 ||
-        !ss->k2 ||
-        !ss->k3 ||
-        !ss->k4 ||
-        !ss->A1 ||
-        !ss->A2 ||
-        !ss->A3 ||
-        !ss->A4 ||
-        !ss->RK4_A ||
-        !ss->RK4_B ||
-        !ss->I) {
+        !ss->Ad ||
+        !ss->Bd) {
         stateSpaceDestroy(ss);
         return NULL;
     }
 
     /* default step size */
-    ss->h = 1e-2;
+    ss->h = 1e-3;
     
     return ss;
 }
@@ -181,28 +143,10 @@ int stateSpaceDestroy(stateSpace *ss) {
         if (matrixDestroy(ss->vec_y1)) { failed = -12; }
     if (ss->vec_y2)
         if (matrixDestroy(ss->vec_y2)) { failed = -13; }
-    if (ss->k1)
-        if (matrixDestroy(ss->k1)) { failed = -14; }
-    if (ss->k2)
-        if (matrixDestroy(ss->k2)) { failed = -15; }
-    if (ss->k3)
-        if (matrixDestroy(ss->k3)) { failed = -16; }
-    if (ss->k4)
-        if (matrixDestroy(ss->k4)) { failed = -17; }
-    if (ss->A1)
-        if (matrixDestroy(ss->A1)) { failed = -18; }
-    if (ss->A2)
-        if (matrixDestroy(ss->A2)) { failed = -19; }
-    if (ss->A3)
-        if (matrixDestroy(ss->A3)) { failed = -20; }
-    if (ss->A4)
-        if (matrixDestroy(ss->A4)) { failed = -21; }
-    if (ss->RK4_A)
-        if (matrixDestroy(ss->RK4_A)) { failed = -22; }
-    if (ss->RK4_B)
-        if (matrixDestroy(ss->RK4_B)) { failed = -23; }
-    if (ss->I)
-        if (matrixDestroy(ss->I)) { failed = -24; }
+    if (ss->Ad)
+        if (matrixDestroy(ss->Ad)) { failed = -22; }
+    if (ss->Bd)
+        if (matrixDestroy(ss->Bd)) { failed = -23; }
 
     free(ss);
     return failed; 
@@ -216,9 +160,9 @@ void stateSpaceUpdate(stateSpace * ss) {
     sum(ss->vec_y1, ss->vec_y2, ss->y);
 
     /* prepare to update x */
-    product(ss->RK4_A, ss->x, ss->vec_x1);
+    product(ss->Ad, ss->x, ss->vec_x1);
     product(ss->B, ss->u, ss->vec_x2);
-    product(ss->RK4_B, ss->vec_x2, ss->vec_x3);
+    product(ss->Bd, ss->vec_x2, ss->vec_x3);
 
     /* store old data in unused matrix */
     matrixCopyData(ss->x, ss->vec_x2);
@@ -232,49 +176,70 @@ void stateSpaceUpdate(stateSpace * ss) {
 }
 
 
-void calculateRungeKutta(stateSpace * ss) {
+int calculateRungeKutta(stateSpace * ss) {
     int row, col;
+    matrix *A1, *A2, *A3, *A4, *I;
 
     double c1 = ss->h;
     double c2 = c1*c1/2.0;
     double c3 = c1*c1*c1/6.0;
     double c4 = c1*c1*c1*c1/24.0;
 
+    A1 = matrixCreate(ss->size_x, ss->size_x);
+    A2 = matrixCreate(ss->size_x, ss->size_x);
+    A3 = matrixCreate(ss->size_x, ss->size_x);
+    A4 = matrixCreate(ss->size_x, ss->size_x);
+    I = matrixCreate(ss->size_x, ss->size_x);
+    identity(I);
+
+    if (!A1 ||
+        !A2 ||
+        !A3 ||
+        !A4 ||
+        !I) {
+        return 1;
+    }
+
     /* generate powers of A */
-    ss->A1 = matrixCopy(ss->A);
-    product(ss->A1, ss->A, ss->A2);
-    product(ss->A2, ss->A, ss->A3);
-    product(ss->A3, ss->A, ss->A4);
+    A1 = matrixCopy(ss->A);
+    product(A1, ss->A, A2);
+    product(A2, ss->A, A3);
+    product(A3, ss->A, A4);
 
     /* scale powers of A */
-    multiply(c1, ss->A1, ss->A1);
-    multiply(c2, ss->A2, ss->A2);
-    multiply(c3, ss->A3, ss->A3);
-    multiply(c4, ss->A4, ss->A4);
+    multiply(c1, A1, A1);
+    multiply(c2, A2, A2);
+    multiply(c3, A3, A3);
+    multiply(c4, A4, A4);
 
-    for (col = 1; col <= ss->I->cols; col++)
-        for (row = 1; row <= ss->I->rows; row++)
-            ELEM(ss->RK4_A, row, col) = ELEM(ss->I, row, col)
-                                      + ELEM(ss->A1, row, col)
-                                      + ELEM(ss->A2, row, col)
-                                      + ELEM(ss->A3, row, col)
-                                      + ELEM(ss->A4, row, col);
+    for (col = 1; col <= I->cols; col++)
+        for (row = 1; row <= I->rows; row++)
+            ELEM(ss->Ad, row, col) = ELEM(I, row, col)
+                                      + ELEM(A1, row, col)
+                                      + ELEM(A2, row, col)
+                                      + ELEM(A3, row, col)
+                                      + ELEM(A4, row, col);
     /* scale I */
-    multiply(c1, ss->I, ss->I);
+    multiply(c1, I, I);
 
     /* rescale powers of A */
-    multiply(c2/c1, ss->A1, ss->A1);
-    multiply(c3/c2, ss->A2, ss->A2);
-    multiply(c4/c3, ss->A3, ss->A3);
+    multiply(c2/c1, A1, A1);
+    multiply(c3/c2, A2, A2);
+    multiply(c4/c3, A3, A3);
 
+    for (col = 1; col <= I->cols; col++)
+        for (row = 1; row <= I->rows; row++)
+            ELEM(ss->Bd, row, col) = ELEM(I, row, col)
+                                      + ELEM(A1, row, col)
+                                      + ELEM(A2, row, col)
+                                      + ELEM(A3, row, col); 
 
-    for (col = 1; col <= ss->I->cols; col++)
-        for (row = 1; row <= ss->I->rows; row++)
-            ELEM(ss->RK4_B, row, col) = ELEM(ss->I, row, col)
-                                      + ELEM(ss->A1, row, col)
-                                      + ELEM(ss->A2, row, col)
-                                      + ELEM(ss->A3, row, col); 
+    matrixDestroy(A1);
+    matrixDestroy(A2);
+    matrixDestroy(A3);
+    matrixDestroy(A4);
+    matrixDestroy(I);
 
-    return;
+    return 0;
 }
 

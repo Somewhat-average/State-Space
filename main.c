@@ -6,12 +6,12 @@ int main(void)
     stateSpace * sys;
 
     double k = 1;
-    double a = 0;
+    double a = 0.1;
     double m = 10;
     double x0 = 5;
     double v0 = 0;
     double t = 0;
-    double t_stop = 100;
+    double t_stop = 10;
 
     const int dimx = 2;
     const int dimu = 1;
@@ -32,11 +32,12 @@ int main(void)
     setElement(sys->x, 2, 1, v0);
 
     /* apply the inital_state */
+    sys->h = 1e-2;
     calculateRungeKutta(sys);
     stateSpaceUpdate(sys);
-
+    
     while (t <= t_stop) {
-        printf("%.4f,%.4f\n", t, ELEM(sys->y, 1, 1));
+        printf("%.4f,%f\n", t, ELEM(sys->y, 1, 1));
         stateSpaceUpdate(sys);
         t += sys->h;
     }
